@@ -1,0 +1,1 @@
+# Kilovault ESPHome Component
