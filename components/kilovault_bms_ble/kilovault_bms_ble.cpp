@@ -282,6 +282,8 @@ void KilovaultBmsBle::decode_status_data_(const std::vector<uint8_t> &data) {
   //ESP_LOGI(TAG, "Status frame (%d+4 bytes):", data.size());
   //ESP_LOGD(TAG, "  %s", format_hex_pretty(&data.front(), data.size()).c_str());
   //this->publish_state_(this->message_text_sensor_, format_hex_pretty(&data.front(), 80).c_str());
+  ESP_LOGI(TAG, "AFESTATUS (RAW): %X", data[41]);
+  ESP_LOGI(TAG, "AFESTATUS (16b): %X", kilovault_get_16bit(41));
   this->publish_state_(this->afestatus_sensor_, kilovault_get_16bit(41));
 
   int16_t status = kilovault_get_16bit(37);
