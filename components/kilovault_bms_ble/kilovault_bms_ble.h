@@ -119,6 +119,7 @@ class KilovaultBmsBle : public esphome::ble_client::BLEClientNode, public Pollin
   uint8_t max_voltage_cell_{0};
   uint8_t min_voltage_cell_{0};
 
+  uint8_t ascii_to_int_(const uint8_t c);
   void assemble_(const uint8_t *data, uint16_t length);
   void on_kilovault_bms_ble_data_(const std::vector<uint8_t> &data);
   void decode_status_data_(const std::vector<uint8_t> &data);

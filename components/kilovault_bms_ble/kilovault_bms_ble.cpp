@@ -21,6 +21,9 @@ static const uint8_t KILOVAULT_ADDRESS = 0x16;
 static const uint8_t KILOVAULT_PKT_END_1 = 0x52;
 static const uint8_t KILOVAULT_PKT_END_2 = 0x52;
 
+
+
+/* ========================================================================= */
 bool crc(const std::vector<uint8_t> &data) {
   auto kilovault_get_8bit = [&](size_t i) -> uint8_t {
     return ((uint8_t(data[i + 0]) << 4) | (uint8_t(data[i + 1]) << 0));
@@ -46,19 +49,27 @@ bool crc(const std::vector<uint8_t> &data) {
   return true;
 }
 
+/* GATT:  Generic Attributes. Is the name of the interface used to connect to BTLE devices. 
+
+          The gattc_event_handler() is from the ESP32 BLE API and is called when a GATT event occurs. 
+*/
+/* ========================================================================= */
 void KilovaultBmsBle::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if,
                                       esp_ble_gattc_cb_param_t *param) {
   switch (event) {
-    case ESP_GATTC_OPEN_EVT: {
+
+    case ESP_GATTC_OPEN_EVT: {  // ESP_GATTC_OPEN_EVT:  Event when a connection to a BLE device is opened.
       break;
     }
-    case ESP_GATTC_DISCONNECT_EVT: {
+
+    case ESP_GATTC_DISCONNECT_EVT: {  // ESP_GATTC_DISCONNECT_EVT:  Event when a BLE device is disconnected.
       this->node_state = espbt::ClientState::IDLE;
 
       // this->publish_state_(this->voltage_sensor_, NAN);
       break;
     }
-    case ESP_GATTC_SEARCH_CMPL_EVT: {
+
+    case ESP_GATTC_SEARCH_CMPL_EVT: { // ESP_GATTC_SEARCH_CMPL_EVT:  Event when the search for services is completed.
 
       auto *char_notify =
           this->parent_->get_characteristic(KILOVAULT_BMS_SERVICE_UUID, KILOVAULT_BMS_NOTIFY_CHARACTERISTIC_UUID);
@@ -85,35 +96,53 @@ void KilovaultBmsBle::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_i
       this->char_command_handle_ = char_command->handle;
       break;
     }
-    case ESP_GATTC_REG_FOR_NOTIFY_EVT: {
+
+    case ESP_GATTC_REG_FOR_NOTIFY_EVT: {  // ESP_GATTC_REG_FOR_NOTIFY_EVT:  Event when a notification is registered.
       this->node_state = espbt::ClientState::ESTABLISHED;
 
       break;
     }
-    case ESP_GATTC_NOTIFY_EVT: {
+
+    // This is the main entry point for data from the BMS
+    case ESP_GATTC_NOTIFY_EVT: { // ESP_GATTC_NOTIFY_EVT:  Event when a notification is received.
       ESP_LOGVV(TAG, "Notification received (handle 0x%02X): %s", param->notify.handle,
                 format_hex_pretty(param->notify.value, param->notify.value_len).c_str());
 
+      // assemble_() is defined below
       this->assemble_(param->notify.value, param->notify.value_len);
       break;
     }
+
     default:
       break;
   }
 }
 
+// KC: Moved ascii_to_int to a seperate function
+uint8_t KilovaultBmsBle::ascii_to_int_(const uint8_t c) {
+    uint8_t v = c;
+    if ((c >= 48) && (c <= 57))
+        v = (c - 48);
+    else if ((c >= 65) && (c <= 70))
+        v = (c - 65 + 10);
+    else if ((c >= 97) && (c <= 102))
+        v = (c - 97 + 10);   
+    return v;
+}
+
+/* ========================================================================= */
 void KilovaultBmsBle::assemble_(const uint8_t *data, uint16_t length) {
 
-  auto asciiToInt = [] ( const uint8_t c) {
-	uint8_t v = c;
-	if ((c >= 48) && (c <= 57))
-		v = (c - 48);
-	else if ((c >= 65) && (c <= 70))
-		v = (c - 65 + 10);
-	else if ((c >= 97) && (c <= 102))
-		v = (c - 97 + 10);   
-	return v;
-  };
+  // auto ascii_to_int = [] (const uint8_t c) {
+  //   uint8_t v = c;
+  //   if ((c >= 48) && (c <= 57))
+  //     v = (c - 48);
+  //   else if ((c >= 65) && (c <= 70))
+  //     v = (c - 65 + 10);
+  //   else if ((c >= 97) && (c <= 102))
+  //     v = (c - 97 + 10);   
+  //   return v;
+  // };
 
   if (this->frame_buffer_.size() > MAX_RESPONSE_SIZE) {
     ESP_LOGW(TAG, "Maximum response size exceeded");
@@ -131,7 +160,7 @@ void KilovaultBmsBle::assemble_(const uint8_t *data, uint16_t length) {
   if (this->frame_buffer_.size() == MAX_RESPONSE_SIZE) {
 
     for(int i=0; i < this->frame_buffer_.size(); i++){
-      this->frame_buffer_[i] = asciiToInt(this->frame_buffer_[i]);
+      this->frame_buffer_[i] = this->ascii_to_int_(this->frame_buffer_[i]);
     }
     if (!crc(this->frame_buffer_)) {
       //ESP_LOGW(TAG, "frame_buffer: %s", format_hex_pretty(this->frame_buffer_).c_str());
@@ -144,6 +173,7 @@ void KilovaultBmsBle::assemble_(const uint8_t *data, uint16_t length) {
   }
 }
 
+/* ========================================================================= */
 void KilovaultBmsBle::update() {
   if (this->node_state != espbt::ClientState::ESTABLISHED ) {
     ESP_LOGW(TAG, "[%s] Not connected", this->parent_->address_str().c_str());
@@ -152,12 +182,14 @@ void KilovaultBmsBle::update() {
 
 }
 
+/* ========================================================================= */
 void KilovaultBmsBle::on_kilovault_bms_ble_data_(const std::vector<uint8_t> &data) {
 
   this->decode_status_data_(data);
 
 }
 
+/* ========================================================================= */
 void KilovaultBmsBle::decode_status_data_(const std::vector<uint8_t> &data) {
   auto kilovault_get_16bit = [&](size_t i) -> uint16_t {
     return (uint16_t(data[i + 2]) << 12) | (uint16_t(data[i + 3]) << 8) | (uint16_t(data[i + 0]) << 4) | (uint16_t(data[i + 1]) << 0);
@@ -213,6 +245,7 @@ void KilovaultBmsBle::decode_status_data_(const std::vector<uint8_t> &data) {
 
 }
 
+/* ========================================================================= */
 void KilovaultBmsBle::decode_cell_voltages_data_(const std::vector<uint8_t> &data) {
   auto kilovault_get_16bit = [&](size_t i) -> uint16_t {
     return (uint16_t(data[i + 2]) << 12) | (uint16_t(data[i + 3]) << 8) | (uint16_t(data[i + 0]) << 4) | (uint16_t(data[i + 1]) << 0);
@@ -247,6 +280,7 @@ void KilovaultBmsBle::decode_cell_voltages_data_(const std::vector<uint8_t> &dat
   this->publish_state_(this->delta_cell_voltage_sensor_, this->max_cell_voltage_ - this->min_cell_voltage_);
 }
 
+/* ========================================================================= */
 void KilovaultBmsBle::dump_config() {  // NOLINT(google-readability-function-size,readability-function-size)
   ESP_LOGCONFIG(TAG, "KilovaultBmsBle:");
 
@@ -277,6 +311,7 @@ void KilovaultBmsBle::dump_config() {  // NOLINT(google-readability-function-siz
   LOG_TEXT_SENSOR("", "Message", this->message_text_sensor_);
 }
 
+/* ========================================================================= */
 void KilovaultBmsBle::publish_state_(binary_sensor::BinarySensor *binary_sensor, const bool &state) {
   if (binary_sensor == nullptr)
     return;
@@ -284,6 +319,7 @@ void KilovaultBmsBle::publish_state_(binary_sensor::BinarySensor *binary_sensor,
   binary_sensor->publish_state(state);
 }
 
+/* ========================================================================= */
 void KilovaultBmsBle::publish_state_(sensor::Sensor *sensor, float value) {
   if (sensor == nullptr)
     return;
@@ -291,6 +327,7 @@ void KilovaultBmsBle::publish_state_(sensor::Sensor *sensor, float value) {
   sensor->publish_state(value);
 }
 
+/* ========================================================================= */
 void KilovaultBmsBle::publish_state_(text_sensor::TextSensor *text_sensor, const std::string &state) {
   if (text_sensor == nullptr)
     return;
@@ -298,6 +335,7 @@ void KilovaultBmsBle::publish_state_(text_sensor::TextSensor *text_sensor, const
   text_sensor->publish_state(state);
 }
 
+/* ========================================================================= */
 void KilovaultBmsBle::publish_state_(switch_::Switch *obj, const bool &state) {
   if (obj == nullptr)
     return;
@@ -305,10 +343,12 @@ void KilovaultBmsBle::publish_state_(switch_::Switch *obj, const bool &state) {
   obj->publish_state(state);
 }
 
+/* ========================================================================= */
 void KilovaultBmsBle::write_register(uint8_t address, uint16_t value) {
   // this->send_command_(KILOVAULT_CMD_WRITE, KILOVAULT_CMD_MOS);  // @TODO: Pass value
 }
 
+/* ========================================================================= */
 bool KilovaultBmsBle::send_command_(uint8_t start_of_frame, uint8_t function, uint8_t value) {
   uint8_t frame[9];
   uint8_t data_len = 1;
