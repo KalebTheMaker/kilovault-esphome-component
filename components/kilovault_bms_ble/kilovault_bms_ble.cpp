@@ -253,9 +253,9 @@ void KilovaultBmsBle::decode_status_data_(const std::vector<uint8_t> &data) {
   */
 
   // Log each value of the array.
-  for (size_t i = 0; i < data.size(); i++) {
-    ESP_LOGW(TAG, "data[%d] = %d", i, data[i]);
-  }
+  // for (size_t i = 0; i < data.size(); i++) {
+  //   ESP_LOGW(TAG, "data[%d] = %d", i, data[i]);
+  // }
 
 
   /* kilovault_get_16bit lambda function
